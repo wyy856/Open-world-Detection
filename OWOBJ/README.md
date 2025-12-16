@@ -72,7 +72,7 @@ tail -f exps/MOWODB/OWOBJ/logs/generate_t1_exemplar_final_write.txt
 
 T2阶段：
 
-x训练：
+训练：
 
 nohup bash -c "CUDA_VISIBLE_DEVICES=2 python -u main_open_world.py \
     --output_dir \"exps/MOWODB/OWOBJ/t2\" \
