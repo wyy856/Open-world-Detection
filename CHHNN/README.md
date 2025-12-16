@@ -1,8 +1,10 @@
 Hybrid neural networks for continual learning inspired by corticohippocampal circuits
-https://github.com/ qqish/CH-HNN
 
-复现：188服务器
+复现：https://github.com/ qqish/CH-HNN
+188服务器
+
 cd /icislab/volume2/wyy/CH-HNN
+
 conda activate chhnn
 
 
