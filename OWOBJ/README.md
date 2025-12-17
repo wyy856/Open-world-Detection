@@ -70,6 +70,15 @@ nohup bash -c "CUDA_VISIBLE_DEVICES=1 python -u main_open_world.py \
     
 tail -f exps/MOWODB/OWOBJ/logs/generate_t1_exemplar_final_write.txt
 
+修改！！！
+
+t1训练命令:
+
+mkdir -p exps/MOWODB/OWOBJ/logs/ && nohup python -u main_open_world.py --output_dir "exps/MOWODB/OWOBJ/t1_rerun" --dataset OWDETR --PREV_INTRODUCED_CLS 0 --CUR_INTRODUCED_CLS 19 --data_root 'data/OWOD' --train_set 'owod_t1_train' --test_set 'test' --epochs 41 --cls_loss_coef 2 --focal_alpha 0.25 --model_type 'sketch' --obj_loss_coef 8e-4 --obj_temp 1.3 --obj_kl_div 0.1 --exemplar_replay_max_length 850 --exemplar_replay_dir PROB_t1 --exemplar_replay_cur_file "learned_owod_t1_ft.txt" --lr 0.0001 --weight_decay 1e-4 --lr_drop 17 --clip_max_norm 5.0 --resume "models/dino_resnet50_pretrain.pth" 2>&1 | tee exps/MOWODB/OWOBJ/logs/t1_static_rerun.txt > /dev/null &
+ 
+tail -f exps/MOWODB/OWOBJ/logs/t1_static_rerun.txt
+
+
 T2阶段：
 
 训练：
