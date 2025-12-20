@@ -1,0 +1,26 @@
+一、第一步：精准定位并杀死仅 OW-DETR 相关的残留进程
+避免pkill python杀死所有 Python 进程，只针对与main_open_world.py相关的 PID 操作：
+步骤 1：查找所有与 OW-DETR 相关的进程（包括子进程）
+bash
+运行
+# 1. 查找主进程（main_open_world.py）
+pgrep -f "main_open_world.py"
+
+# 2. 查找该主进程的所有子进程（避免遗漏DataLoader的worker子进程）
+# 替换<主进程PID>为上面查到的PID，如881774
+pstree -p <主进程PID> | grep -oE '[0-9]+'
+步骤 2：逐个杀死这些进程（优雅终止，避免显存泄漏）
+bash
+运行
+# 先优雅终止主进程（推荐用kill -15，让进程清理资源）
+kill -15 <主进程PID>
+
+# 再杀死子进程（如果有）
+kill -15 <子进程PID1> <子进程PID2>
+
+# 若优雅终止无效，再用kill -9（仅针对目标PID）
+kill -9 <主进程PID> <子进程PID>
+步骤 3：验证目标进程已被杀死
+bash
+运行
+pgrep -f "main_open_world.py"  # 无输出则说明已杀死
