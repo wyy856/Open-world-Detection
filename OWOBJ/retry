@@ -1,0 +1,9 @@
+186
+
+cd /volume1/wyy/OWOBJ-main
+  
+conda activate owobj
+
+nohup bash -c 'CUDA_VISIBLE_DEVICES=1 bash run.sh' > t1.log 2>&1 &
+  
+tail -f  t1.log
