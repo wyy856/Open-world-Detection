@@ -1,4 +1,9 @@
-"""MMDetection bbox head with WOOD unknown regularization."""
+"""MMDetection bbox head with WOOD unknown regularization.
+
+The class extends Faster R-CNN's common ``Shared2FCBBoxHead``. It keeps the
+standard MMDetection losses and adds a WOOD loss term for samples labelled as
+the explicit unknown foreground class.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +30,8 @@ class OWODShared2FCBBoxHead(Shared2FCBBoxHead):
         self,
         num_known_classes: int,
         loss_wood: Optional[dict] = None,
+        chhnn_incremental: Optional[dict] = None,
+        old_classes: int = 0,
         unknown_score_thr: float = 0.08,
         known_score_thr: float = 0.25,
         objectness_thr: float = 0.2,
@@ -35,6 +42,7 @@ class OWODShared2FCBBoxHead(Shared2FCBBoxHead):
     ) -> None:
         super().__init__(*args, **kwargs)
         self.num_known_classes = num_known_classes
+        self.old_classes = old_classes
         self.unknown_label = num_known_classes
         self.background_label = self.num_classes
         self.unknown_score_thr = unknown_score_thr
@@ -51,6 +59,55 @@ class OWODShared2FCBBoxHead(Shared2FCBBoxHead):
             loss_wood.setdefault("unknown_label", self.unknown_label)
             loss_wood.setdefault("background_label", self.background_label)
             self.loss_wood = MODELS.build(loss_wood)
+
+        if chhnn_incremental is None:
+            self.chhnn_incremental = None
+        else:
+            chhnn_incremental = chhnn_incremental.copy()
+            chhnn_incremental.setdefault("in_features", self.fc_out_channels)
+            chhnn_incremental.setdefault("num_classes", self.num_classes)
+            chhnn_incremental.setdefault("old_classes", old_classes)
+            self.chhnn_incremental = MODELS.build(chhnn_incremental)
+
+    def _shared_forward(self, x: Tensor) -> Tensor:
+        if self.num_shared_convs > 0:
+            for conv in self.shared_convs:
+                x = conv(x)
+        if self.num_shared_fcs > 0:
+            if self.with_avg_pool:
+                x = self.avg_pool(x)
+            x = x.flatten(1)
+            for fc in self.shared_fcs:
+                x = self.relu(fc(x))
+        return x
+
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
+        shared_feat = self._shared_forward(x)
+        self._last_shared_roi_feat = shared_feat
+
+        x_cls = shared_feat
+        x_reg = shared_feat
+        for conv in self.cls_convs:
+            x_cls = conv(x_cls)
+        if x_cls.dim() > 2:
+            if self.with_avg_pool:
+                x_cls = self.avg_pool(x_cls)
+            x_cls = x_cls.flatten(1)
+        for fc in self.cls_fcs:
+            x_cls = self.relu(fc(x_cls))
+
+        for conv in self.reg_convs:
+            x_reg = conv(x_reg)
+        if x_reg.dim() > 2:
+            if self.with_avg_pool:
+                x_reg = self.avg_pool(x_reg)
+            x_reg = x_reg.flatten(1)
+        for fc in self.reg_fcs:
+            x_reg = self.relu(fc(x_reg))
+
+        cls_score = self.fc_cls(x_cls) if self.with_cls else None
+        bbox_pred = self.fc_reg(x_reg) if self.with_reg else None
+        return cls_score, bbox_pred
 
     def loss(
         self,
@@ -73,6 +130,7 @@ class OWODShared2FCBBoxHead(Shared2FCBBoxHead):
             bbox_weights,
             reduction_override=reduction_override,
         )
+
         if self.loss_wood is not None and cls_score is not None:
             avg_factor = max(torch.sum(label_weights > 0).float().item(), 1.0)
             losses["loss_wood"] = self.loss_wood(
@@ -82,6 +140,17 @@ class OWODShared2FCBBoxHead(Shared2FCBBoxHead):
                 avg_factor=avg_factor,
                 reduction_override=reduction_override,
             )
+        if self.chhnn_incremental is not None and cls_score is not None:
+            roi_features = getattr(self, "_last_shared_roi_feat", None)
+            if roi_features is not None:
+                losses.update(
+                    self.chhnn_incremental.loss(
+                        roi_features,
+                        labels,
+                        label_weights=label_weights,
+                        teacher_logits=cls_score.detach() if self.old_classes > 0 else None,
+                    )
+                )
         return losses
 
     def _boost_unknown_logits(self, cls_score: Tensor) -> Tensor:
@@ -107,7 +176,8 @@ class OWODShared2FCBBoxHead(Shared2FCBBoxHead):
         known_anchor = cls_score[:, : self.num_known_classes].max(dim=1).values
         boosted_unknown = known_anchor + self.unknown_logit_boost
         boosted[unknown_like, self.unknown_label] = torch.maximum(
-            boosted[unknown_like, self.unknown_label], boosted_unknown[unknown_like]
+            boosted[unknown_like, self.unknown_label],
+            boosted_unknown[unknown_like],
         )
         return boosted
 
@@ -120,6 +190,7 @@ class OWODShared2FCBBoxHead(Shared2FCBBoxHead):
         rescale: bool = False,
         rcnn_test_cfg: Optional[ConfigDict] = None,
     ) -> InstanceData:
+        """Copy of MMDetection 3.3 BBoxHead postprocess with unknown logit boost."""
         results = InstanceData()
         if roi.shape[0] == 0:
             return empty_instances(
